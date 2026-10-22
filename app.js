@@ -1,3 +1,4 @@
+import {updateMap,resizeMap,exportMap} from './map-viewer.js';
 import * as C from './core.js';
 import {esc,fmt,lineChart,distributionChart,comparisonChart,mapChart,pngFromSvg} from './charts.js';
 import {calculate} from './r-engine.js';
@@ -10,7 +11,7 @@ const option=(v,t)=>'<option value="'+esc(v)+'">'+esc(t)+'</option>';
 const table=(heads,rows)=>'<table><thead><tr>'+heads.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(v=>'<td>'+v+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
 const label=(key,id)=>key==='state'?S.catalog.states[id]||id:key==='municipality'?S.catalog.municipalities[id]||id:key==='crop'?S.catalog.crops.find(c=>c.id===id)?.name||id:id;
 export function unit(metric=S.metric){const units=[...new Set(S.base.map(r=>r.unit))];const u=units.length===1?units[0]:'unidades incompatibles';return {production:u,yield:u+'/ha',price:'MXN/'+u}[metric]||C.METRICS[metric].unit;}
-function switchTab(name){document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===name));document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));}
+function switchTab(name){document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===name));document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));if(name==='space')resizeMap();}
 async function download(name,content,type='text/plain;charset=utf-8'){
  const blob=content instanceof Blob?content:new Blob([content],{type});let url;
  if(location.hostname==='127.0.0.1'&&location.port==='4173'){
@@ -117,10 +118,16 @@ async function runScience(){
  }catch(e){$('scienceResult').textContent='No se pudo iniciar o ejecutar R: '+e.message;setStatus('Los análisis descriptivos siguen disponibles. Revise su conexión para usar R.');}finally{$('runScience').disabled=false;}
 }
 function renderMap(){
- if(!S.geo)return;const year=Number($('mapYear').value),rows=C.aggregate(S.active.filter(r=>r.year===year),['state']);S.mapValues=Object.fromEntries(rows.map(r=>[r.state,r[S.metric]]));$('mapChart').innerHTML=mapChart(S.geo,S.mapValues,unit());$('mapNotes').textContent='INEGI · Marco Geoestadístico, diciembre de 2025. Unión por clave de entidad. Mapa del año '+year+'. Sin registro o indicador incompleto se representa en gris. La cartografía no reconstruye límites históricos municipales.';
+ if(!S.geo||!S.filters)return;
+ const metric=$('mapMetric').value||S.metric,year=Number($('mapYear').value);
+ S.mapValues=Object.fromEntries(C.aggregate(S.active.filter(r=>r.year===year),['state']).map(r=>[r.state,r[metric]]));
+ $('runSpatial').disabled=S.filters.states.length>0;
+ $('spatialScope').textContent=S.filters.states.length?'La vista municipal es descriptiva. La inferencia espacial disponible utiliza vecindad estatal; consulte México para ejecutarla.':'Moran, LISA y Gi* usan la variable del mapa y la vecindad estatal validada.';
+ updateMap(S,unit,label);
 }
 function runSpatial(){
- const r=C.spatialStats(S.geo.features,S.mapValues);S.spatial={...r,year:Number($('mapYear').value),metric:S.metric};S.report=null;
+ if(!S.filters||S.filters.states.length||!S.mapValues)return;
+ const r=C.spatialStats(S.geo.features,S.mapValues);S.spatial={...r,year:Number($('mapYear').value),metric:$('mapMetric').value};S.report=null;
  $('spatialResult').innerHTML=r.error?esc(r.error):'<h3>Moran global: '+fmt(r.I,4)+' · p por permutaciones: '+fmt(r.p,4)+'</h3><p>'+r.n+' entidades · '+r.permutations+' permutaciones · vecindad Queen, pesos por fila. LISA con permutación condicional y ajuste BH.</p>'+table(['Entidad','I local','p','q (BH)','Patrón descriptivo','Gi*','q Gi* (BH)'],r.local.map(l=>[esc(label('state',l.id)),fmt(l.I,3),fmt(l.p,4),fmt(l.q,4),esc(l.cluster)+(l.q<.05?' · q < 0.05':' · no significativo'),fmt(l.Gstar,3),fmt(l.gq,4)]));
 }
 async function makeReport(){
@@ -137,7 +144,7 @@ document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dat
 $('query').onclick=query;$('states').onchange=refreshMunicipalities;
 $('allYears').onclick=()=>document.querySelectorAll('#years input').forEach(e=>e.checked=true);$('noYears').onclick=()=>document.querySelectorAll('#years input').forEach(e=>e.checked=false);
 $('cropSearch').oninput=()=>{const term=$('cropSearch').value.toLocaleLowerCase('es');for(const o of $('crops').options)o.hidden=!o.text.toLocaleLowerCase('es').includes(term)&&!o.selected;};
-$('metric').onchange=()=>{S.metric=$('metric').value;invalid();render();};
+$('metric').onchange=()=>{S.metric=$('metric').value;$('mapMetric').value=S.metric;invalid();render();};
 $('anomalyMethod').onchange=()=>{S.method=$('anomalyMethod').value;S.version++;S.report=null;$('reportBody').textContent='El criterio de anomalías cambió. Genere un reporte actualizado.';render();};
 $('addExclusion').onclick=()=>addExclusion('year',Number($('excludeYear').value));$('restoreAll').onclick=()=>{S.excluded=[];invalid();render();};
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.pickYear){$('excludeYear').value=b.dataset.pickYear;$('exclusionReason').focus();}if(b.dataset.restore!==undefined){S.excluded.splice(Number(b.dataset.restore),1);invalid();render();}if(b.dataset.excludeRow)addExclusion('record',b.dataset.excludeRow);if(b.dataset.download){const data=await pngFromSvg($(b.dataset.download).innerHTML);const blob=await(await fetch(data)).blob();download('siap-'+S.metric+'.png',blob);}});
@@ -149,7 +156,8 @@ $('periodCut').onchange=()=>{S.version++;S.comparison=null;S.report=null;$('repo
 $('comparisonGroups').onchange=()=>{S.version++;S.comparison=null;S.report=null;$('reportBody').textContent='La comparación cambió. Genere un reporte actualizado.';$('comparisonResult').textContent='Calcule la comparación de los grupos seleccionados.';drawComparison();};
 $('comparisonMethod').onchange=()=>{S.version++;S.comparison=null;S.report=null;$('reportBody').textContent='La comparación cambió. Genere un reporte actualizado.';$('comparisonResult').textContent='Calcule la comparación con el método seleccionado.';};
 $('runCompare').onclick=runCompare;$('runScience').onclick=runScience;$('horizon').onchange=()=>{invalid();render();};
-$('mapYear').onchange=()=>{S.spatial=null;S.report=null;$('spatialResult').innerHTML='';renderMap();};$('runSpatial').onclick=runSpatial;
+for(const id of ['mapYear','mapMetric','mapClassification','mapClasses','mapPalette'])$(id).onchange=()=>{S.spatial=null;S.report=null;$('spatialResult').innerHTML='';renderMap();};
+for(const [id,kind] of Object.entries({mapSvg:'svg',mapPng:'png',mapPdf:'pdf',mapGeojson:'geojson',mapMetadata:'metadata'}))$(id).onclick=async()=>{try{$(id).disabled=true;await exportMap(kind,download);}catch(e){notice('No se pudo exportar el mapa: '+e.message);}finally{$(id).disabled=false;}};$('runSpatial').onclick=runSpatial;
 $('makeReport').onclick=makeReport;$('exportSession').onclick=()=>download('siap-trazabilidad.json',JSON.stringify(session(),null,2),'application/json');
 $('exportDocx').onclick=async()=>{if(!S.report)await makeReport();if(S.report)await exportDocx(S.report,download);};
 $('exportPdf').onclick=async()=>{if(!S.report)await makeReport();if(S.report)await exportPdf(S.report,download);};
@@ -162,7 +170,7 @@ async function init(){
  $('states').innerHTML=Object.entries(S.catalog.states).sort((a,b)=>a[1].localeCompare(b[1],'es')).map(([id,name])=>option(id,name)).join('');$('states').selectedIndex=-1;refreshMunicipalities();
  $('years').innerHTML=S.catalog.years.map(y=>'<label><input type="checkbox" value="'+y+'"><span>'+y+'</span></label>').join('');
  $('cycles').innerHTML+=['Otoño-Invierno','Primavera-Verano','Perennes'].map(v=>option(v,v)).join('');$('modes').innerHTML+=['Riego','Temporal'].map(v=>option(v,v)).join('');
- $('metric').innerHTML=Object.entries(C.METRICS).map(([key,m])=>option(key,m.label)).join('');$('metric').value=S.metric;
+ $('metric').innerHTML=Object.entries(C.METRICS).map(([key,m])=>option(key,m.label)).join('');$('metric').value=S.metric;$('mapMetric').innerHTML=$('metric').innerHTML;$('mapMetric').value=S.metric;
  try{S.geo=await(await fetch('data/states-display.geojson')).json();}catch{$('mapNotes').textContent='Cartografía no disponible.';$('runSpatial').disabled=true;}
  $('methodsContent').innerHTML=await(await fetch('methods.html')).text();
  $('querySubtitle').textContent='Selecciona un cultivo y los años que deseas analizar. Después pulsa «Consultar datos».';setStatus('Sin consulta ejecutada.');$('query').disabled=false;
