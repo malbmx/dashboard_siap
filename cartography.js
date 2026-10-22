@@ -1,6 +1,6 @@
 import {finite,quantile,aggregate} from './core.js';
 import {esc,fmt} from './charts.js';
-export const PALETTES={agro:['#e0f3f2','#a6d9d4','#58b5b5','#168291','#06465f','#062450'],blue:['#eff3ff','#c6dbef','#9ecae1','#6baed6','#3182bd','#08519c'],grey:['#f0f0f0','#d9d9d9','#bdbdbd','#969696','#636363','#252525']};
+export const PALETTES={viridis:['#440154','#414487','#2a788e','#22a884','#7ad151','#fde725'],agro:['#e0f3f2','#a6d9d4','#58b5b5','#168291','#06465f','#062450'],blue:['#eff3ff','#c6dbef','#9ecae1','#6baed6','#3182bd','#08519c'],grey:['#f0f0f0','#d9d9d9','#bdbdbd','#969696','#636363','#252525']};
 export function classify(values,method='quantile',count=5,palette='agro'){
  const a=values.filter(finite).sort((a,b)=>a-b),lo=a[0],hi=a.at(-1);if(!a.length)return {classes:[],color:()=> '#e2e5e8',method};
  const n=Math.max(3,Math.min(6,Number(count)||5));
