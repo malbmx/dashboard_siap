@@ -1,5 +1,5 @@
 import {updateMap,resizeMap,exportMap} from './map-viewer.js';
-import * as C from './core.js';
+import * as C from './core.js?v=20261023-sha256';
 import {esc,fmt,lineChart,distributionChart,comparisonChart,mapChart,pngFromSvg} from './charts.js';
 import {calculate} from './r-engine.js';
 import {createReport,renderReport,exportDocx,exportPdf} from './report.js';
@@ -23,7 +23,7 @@ function invalid(){S.version++;S.bundle=null;S.science=null;S.comparison=null;S.
 async function loadCrop(id){
  if(S.cache.has(id))return S.cache.get(id);
  const c=S.catalog.crops.find(c=>c.id===id),r=await fetch('data/'+c.file);if(!r.ok)throw Error('No se pudo cargar '+c.name);
- const bytes=await r.arrayBuffer();const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
+ const bytes=await r.arrayBuffer();const digest=await C.sha256(bytes);
  if(digest!==c.sha256)throw Error('La integridad del archivo de '+c.name+' no coincide con el catálogo.');
  const unpacked=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
  const rows=unpacked.map(a=>Object.fromEntries(S.catalog.fields.map((k,i)=>[k,a[i]])));S.cache.set(id,rows);return rows;
